@@ -310,12 +310,26 @@ export default function Page() {
                   <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display: 'none' }} />
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
                   <div style={{ fontSize: 15, color: '#ccc', marginBottom: 4 }}>スクショをドロップ</div>
-                  <div style={{ fontSize: 12, color: '#666' }}>またはタップして選択</div>
+                  <div style={{ fontSize: 12, color: '#666' }}>またはタップしてギャラリーから選択</div>
                 </div>
-                <button onClick={() => cameraRef.current?.click()} style={{ width: '100%', padding: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#ccc', fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 20 }}>📷</span> カメラでスキャン
+                <button
+                  onClick={() => cameraRef.current?.click()}
+                  style={{
+                    width: '100%', padding: '16px',
+                    background: 'rgba(24,95,165,0.15)',
+                    border: '1px solid rgba(24,95,165,0.4)',
+                    borderRadius: 12, color: '#5ba3e0', fontSize: 16,
+                    fontWeight: 700, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                  }}
+                >
+                  <span style={{ fontSize: 24 }}>📷</span>
+                  チャートをカメラで撮影して解析
                 </button>
                 <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: 'none' }} />
+                <div style={{ textAlign: 'center', fontSize: 11, color: '#333', marginTop: 8 }}>
+                  MT5・TradingViewの画面をそのまま撮影してください
+                </div>
               </>
             )}
 
