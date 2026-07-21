@@ -11,6 +11,13 @@ STAGE判定:
 - STAGE 4: 強いトレンド・価格EMAから大きく乖離（STAGE POWER 7-8）
 - STAGE 5: 超強トレンド・エクステンション・過熱（STAGE POWER 9-10）
 
+建値ガイド判定:
+- STAGE POWER 9-10: 強トレンド継続・建値固執不要・利を伸ばせ
+- STAGE POWER 7-8: トレンド継続・ホールド推奨
+- STAGE POWER 4-6: 標準・通常管理でOK
+- STAGE POWER 1-3: 弱め・建値をタイトに管理
+- STAGE POWER 0: ニュートラル・様子見
+
 判定基準:
 1. 上位足EMAの向きと配列
 2. BOS: 直近高値/安値を明確に割れているか
@@ -35,17 +42,19 @@ STAGE判定:
   "reasons": ["根拠1", "根拠2", "根拠3"],
   "warning": "注意点",
   "confidence": 1から10の整数,
+  "entryGuide": "建値ガイドメッセージ（例: ⚡ 強トレンド：建値固執不要）",
+  "entryGuideLevel": "strong" | "good" | "normal" | "weak" | "neutral",
   "scenarios": [
     {
       "type": "A",
       "label": "メインシナリオ",
       "direction": "SELL" | "BUY",
-      "trigger": "〇〇を下抜けたら" | "〇〇まで戻りを待って" | "〇〇を上抜けたら" など具体的なトリガー条件,
-      "entry": "エントリー価格（例: 4200.00）",
+      "trigger": "具体的なトリガー条件（例: 4200を下抜けたら）",
+      "entry": "エントリー価格",
       "sl": "SL価格",
       "tp1": "TP1価格",
       "tp2": "TP2価格",
-      "description": "このシナリオの解説（1〜2文で簡潔に）",
+      "description": "シナリオ解説（1〜2文）",
       "probability": "高" | "中" | "低"
     },
     {
@@ -57,7 +66,7 @@ STAGE判定:
       "sl": "SL価格",
       "tp1": "TP1価格",
       "tp2": "TP2価格",
-      "description": "このシナリオの解説",
+      "description": "シナリオ解説",
       "probability": "高" | "中" | "低"
     }
   ]
@@ -85,7 +94,7 @@ export async function POST(req: NextRequest) {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/png', data: imageBase64 } },
-            { type: 'text', text: 'このXAUUSDチャートをBINGO LADDER PROロジックで解析し、具体的なシナリオA・Bを含めて出力してください。' }
+            { type: 'text', text: 'このXAUUSDチャートをBINGO LADDER PROロジックで解析し、建値ガイドと具体的なシナリオA・Bを含めて出力してください。' }
           ]
         }]
       }),
