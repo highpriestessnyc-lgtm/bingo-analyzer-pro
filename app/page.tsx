@@ -36,6 +36,17 @@ const LOADING_MSGS = [
   'エントリーポイント計算中...',
 ]
 
+// LOT計算ユーティリティ
+function calcPnL(entryStr: string, targetStr: string, lot: number, isBuy: boolean) {
+  const entry = parseFloat(entryStr.replace(/[^0-9.]/g, ''))
+  const target = parseFloat(targetStr.replace(/[^0-9.]/g, ''))
+  if (isNaN(entry) || isNaN(target) || lot <= 0) return null
+  const diff = isBuy ? target - entry : entry - target
+  const usd = diff * lot * 100
+  const jpy = usd * 155 // 概算レート
+  return { usd: usd.toFixed(2), jpy: Math.round(jpy).toLocaleString() }
+}
+
 export default function Page() {
   const [preview, setPreview] = useState<string | null>(null)
   const [imageBase64, setImageBase64] = useState<string | null>(null)
@@ -45,6 +56,11 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('')
+  const [lot, setLot] = useState('0.01')
+  const [usdJpy, setUsdJpy] = useState('155')
+  const [showSimulator, setShowSimulator] = useState(false)
+  const [memo, setMemo] = useState('')
+  const [showMemo, setShowMemo] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const loadingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -94,6 +110,7 @@ export default function Page() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || '解析失敗')
       setResult(data)
+      setShowSimulator(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '解析エラー')
     } finally {
@@ -107,24 +124,45 @@ export default function Page() {
     setImageBase64(null)
     setResult(null)
     setError(null)
+    setShowSimulator(false)
+    setMemo('')
+    setShowMemo(false)
     if (fileRef.current) fileRef.current.value = ''
     if (cameraRef.current) cameraRef.current.value = ''
   }
 
   const cfg = result ? SIGNAL_CONFIG[result.signal] : null
+  const isBuy = result?.signal === 'BUY'
+  const lotNum = parseFloat(lot) || 0.01
+  const rate = parseFloat(usdJpy) || 155
+
+  // PnL計算
+  const calcPnLWithRate = (entryStr: string, targetStr: string) => {
+    const entry = parseFloat(entryStr?.replace(/[^0-9.]/g, '') || '0')
+    const target = parseFloat(targetStr?.replace(/[^0-9.]/g, '') || '0')
+    if (!entry || !target || lotNum <= 0) return null
+    const diff = isBuy ? target - entry : entry - target
+    const usd = diff * lotNum * 100
+    const jpy = usd * rate
+    return {
+      usd: usd.toFixed(2),
+      jpy: Math.round(jpy).toLocaleString(),
+      positive: usd > 0
+    }
+  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0f', color: '#e8e8e8', paddingBottom: 60 }}>
-      <div style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontSize: 11, color: '#888', letterSpacing: '0.15em', marginBottom: 2 }}>BINGO LADDER PRO</div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', letterSpacing: '0.05em' }}>ANALYZER PRO</div>
-          <div style={{ fontSize: 10, color: '#f39c12', marginTop: 1 }}>XAUUSD · Smart Money Fusion</div>
-        </div>
+      {/* ヘッダー */}
+      <div style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.07)', padding: '14px 20px' }}>
+        <div style={{ fontSize: 11, color: '#888', letterSpacing: '0.15em', marginBottom: 2 }}>BINGO LADDER PRO</div>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', letterSpacing: '0.05em' }}>ANALYZER PRO</div>
+        <div style={{ fontSize: 10, color: '#f39c12', marginTop: 1 }}>XAUUSD · Smart Money Fusion</div>
       </div>
 
       <div style={{ padding: '20px 16px', maxWidth: 480, margin: '0 auto' }}>
 
+        {/* 画像アップロード */}
         {!preview && !loading && (
           <>
             <div
@@ -144,7 +182,6 @@ export default function Page() {
               <div style={{ fontSize: 15, color: '#ccc', marginBottom: 4 }}>スクショをドロップ</div>
               <div style={{ fontSize: 12, color: '#666' }}>またはタップして選択</div>
             </div>
-
             <button
               onClick={() => cameraRef.current?.click()}
               style={{
@@ -162,6 +199,7 @@ export default function Page() {
           </>
         )}
 
+        {/* プレビュー */}
         {preview && !loading && !result && (
           <div>
             <img src={preview} alt="chart" style={{ width: '100%', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', maxHeight: 240, objectFit: 'cover', display: 'block' }} />
@@ -174,6 +212,7 @@ export default function Page() {
           </div>
         )}
 
+        {/* ローディング */}
         {loading && (
           <div style={{ textAlign: 'center', padding: '48px 0' }}>
             <div style={{ width: 48, height: 48, borderRadius: '50%', border: '3px solid rgba(255,255,255,0.08)', borderTopColor: '#185FA5', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
@@ -182,6 +221,7 @@ export default function Page() {
           </div>
         )}
 
+        {/* エラー */}
         {error && (
           <div style={{ background: 'rgba(232,64,64,0.1)', border: '1px solid rgba(232,64,64,0.25)', borderRadius: 12, padding: '16px', fontSize: 13, color: '#e84040' }}>
             ⚠ {error}
@@ -189,16 +229,19 @@ export default function Page() {
           </div>
         )}
 
+        {/* 結果 */}
         {result && cfg && (
           <div>
             {preview && <img src={preview} alt="chart" style={{ width: '100%', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', maxHeight: 140, objectFit: 'cover', display: 'block', marginBottom: 16 }} />}
 
+            {/* シグナル */}
             <div style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, borderRadius: 16, padding: '20px', marginBottom: 12, textAlign: 'center' }}>
               <div style={{ fontSize: 40, fontWeight: 800, color: cfg.color, letterSpacing: '0.05em', marginBottom: 4 }}>{cfg.label}</div>
               <div style={{ fontSize: 13, color: '#aaa', marginBottom: 4 }}>{result.trend}</div>
               {result.currentPrice && <div style={{ fontSize: 12, color: '#666' }}>現在価格: {result.currentPrice}</div>}
             </div>
 
+            {/* STAGE分析 */}
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
               <div style={{ fontSize: 11, color: '#666', letterSpacing: '0.1em', marginBottom: 12 }}>STAGE ANALYSIS</div>
               {[
@@ -218,6 +261,7 @@ export default function Page() {
               ))}
             </div>
 
+            {/* エントリーポイント */}
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
               <div style={{ fontSize: 11, color: '#666', letterSpacing: '0.1em', marginBottom: 12 }}>エントリーポイント</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -237,6 +281,118 @@ export default function Page() {
               </div>
             </div>
 
+            {/* ═══ LOT損益シミュレーター（NEW）═══ */}
+            <div style={{ background: 'rgba(24,95,165,0.1)', border: '1px solid rgba(24,95,165,0.3)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#5ba3e0', letterSpacing: '0.1em' }}>💰 損益シミュレーター</div>
+                <button
+                  onClick={() => setShowSimulator(!showSimulator)}
+                  style={{ background: 'none', border: 'none', color: '#5ba3e0', fontSize: 11, cursor: 'pointer' }}
+                >
+                  {showSimulator ? '▲ 閉じる' : '▼ 開く'}
+                </button>
+              </div>
+
+              {showSimulator && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>LOT数</div>
+                      <input
+                        type="number"
+                        value={lot}
+                        onChange={(e) => setLot(e.target.value)}
+                        step="0.01"
+                        min="0.01"
+                        style={{
+                          width: '100%', padding: '8px 10px',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          borderRadius: 8, color: '#fff', fontSize: 14,
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>USD/JPY レート</div>
+                      <input
+                        type="number"
+                        value={usdJpy}
+                        onChange={(e) => setUsdJpy(e.target.value)}
+                        step="0.1"
+                        style={{
+                          width: '100%', padding: '8px 10px',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.15)',
+                          borderRadius: 8, color: '#fff', fontSize: 14,
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {[
+                      { label: '🔴 SL 損失', target: result.slZone, isLoss: true },
+                      { label: '🟢 TP1 利益', target: result.tp1, isLoss: false },
+                      { label: '🟢 TP2 利益', target: result.tp2, isLoss: false },
+                      { label: '🟢 TP3 利益', target: result.tp3, isLoss: false },
+                    ].map(({ label, target, isLoss }) => {
+                      const pnl = calcPnLWithRate(result.entryZone, target)
+                      if (!pnl) return null
+                      const color = isLoss ? '#e84040' : '#2ecc71'
+                      return (
+                        <div key={label} style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 12px'
+                        }}>
+                          <span style={{ fontSize: 12, color: '#aaa' }}>{label}</span>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color }}>
+                              {isLoss ? '-' : '+'}{Math.abs(parseFloat(pnl.usd)).toFixed(2)} USD
+                            </div>
+                            <div style={{ fontSize: 11, color: '#666' }}>
+                              ≈ {isLoss ? '-' : '+'}{Math.abs(parseInt(pnl.jpy.replace(/,/g, ''))).toLocaleString()} 円
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* ═══ トレードメモ（NEW）═══ */}
+            <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showMemo ? 10 : 0 }}>
+                <div style={{ fontSize: 11, color: '#666', letterSpacing: '0.1em' }}>📝 トレードメモ</div>
+                <button
+                  onClick={() => setShowMemo(!showMemo)}
+                  style={{ background: 'none', border: 'none', color: '#666', fontSize: 11, cursor: 'pointer' }}
+                >
+                  {showMemo ? '▲' : '▼ 書く'}
+                </button>
+              </div>
+              {showMemo && (
+                <textarea
+                  value={memo}
+                  onChange={(e) => setMemo(e.target.value)}
+                  placeholder="エントリー理由・注意点・感想など..."
+                  rows={3}
+                  style={{
+                    width: '100%', padding: '10px',
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 8, color: '#ccc', fontSize: 13,
+                    resize: 'vertical', boxSizing: 'border-box',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              )}
+            </div>
+
+            {/* 判定根拠 */}
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
               <div style={{ fontSize: 11, color: '#666', letterSpacing: '0.1em', marginBottom: 10 }}>判定根拠</div>
               {result.reasons.map((r, i) => (
@@ -246,6 +402,7 @@ export default function Page() {
               ))}
             </div>
 
+            {/* 警告 */}
             {result.warning && (
               <div style={{ background: 'rgba(243,156,18,0.08)', border: '1px solid rgba(243,156,18,0.2)', borderRadius: 12, padding: '12px 14px', marginBottom: 12, fontSize: 13, color: '#f39c12' }}>
                 ⚠ {result.warning}
