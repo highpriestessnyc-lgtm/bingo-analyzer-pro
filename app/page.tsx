@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback } from 'react'
 
 type Signal = 'SELL' | 'BUY' | 'WAIT' | 'CAUTION'
 
@@ -37,10 +37,6 @@ const LOADING_MSGS = [
 ]
 
 export default function Page() {
-  const [licenseKey, setLicenseKey] = useState('')
-  const [isVerified, setIsVerified] = useState(false)
-  const [verifyError, setVerifyError] = useState('')
-  const [verifying, setVerifying] = useState(false)
   const [preview, setPreview] = useState<string | null>(null)
   const [imageBase64, setImageBase64] = useState<string | null>(null)
   const [mediaType, setMediaType] = useState('image/png')
@@ -52,38 +48,6 @@ export default function Page() {
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const loadingRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  useEffect(() => {
-    const saved = localStorage.getItem('bl_license')
-    if (saved) {
-      setLicenseKey(saved)
-      setIsVerified(true)
-    }
-  }, [])
-
-  const verifyLicense = async () => {
-    if (!licenseKey.trim()) return
-    setVerifying(true)
-    setVerifyError('')
-    try {
-      const res = await fetch('/api/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licenseKey: licenseKey.trim() }),
-      })
-      const data = await res.json()
-      if (data.valid) {
-        setIsVerified(true)
-        localStorage.setItem('bl_license', licenseKey.trim())
-      } else {
-        setVerifyError(data.error || '無効なキーです')
-      }
-    } catch {
-      setVerifyError('サーバーエラー')
-    } finally {
-      setVerifying(false)
-    }
-  }
 
   const processFile = useCallback((file: File) => {
     const reader = new FileReader()
@@ -147,65 +111,7 @@ export default function Page() {
     if (cameraRef.current) cameraRef.current.value = ''
   }
 
-  const logout = () => {
-    localStorage.removeItem('bl_license')
-    setIsVerified(false)
-    setLicenseKey('')
-    reset()
-  }
-
   const cfg = result ? SIGNAL_CONFIG[result.signal] : null
-
-  if (!isVerified) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#0a0a0f', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '0 24px' }}>
-        <div style={{ marginBottom: 40, textAlign: 'center' }}>
-          <div style={{ fontSize: 11, color: '#f39c12', letterSpacing: '0.2em', marginBottom: 8 }}>BINGO LADDER PRO</div>
-          <div style={{ fontSize: 32, fontWeight: 800, color: '#fff', marginBottom: 8, letterSpacing: '0.05em' }}>ANALYZER PRO</div>
-          <div style={{ fontSize: 13, color: '#555' }}>ライセンスキーを入力してください</div>
-        </div>
-
-        <div style={{ width: '100%', maxWidth: 360 }}>
-          <input
-            type="text"
-            value={licenseKey}
-            onChange={(e) => setLicenseKey(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && verifyLicense()}
-            placeholder="BINGO-XXXX-XXXX"
-            style={{
-              width: '100%', padding: '14px 16px',
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.15)',
-              borderRadius: 12, color: '#fff', fontSize: 16,
-              letterSpacing: '0.08em', outline: 'none',
-              boxSizing: 'border-box', marginBottom: 12,
-            }}
-          />
-          {verifyError && (
-            <div style={{ color: '#e84040', fontSize: 13, marginBottom: 12, textAlign: 'center' }}>{verifyError}</div>
-          )}
-          <button
-            onClick={verifyLicense}
-            disabled={verifying || !licenseKey.trim()}
-            style={{
-              width: '100%', padding: '14px',
-              background: verifying || !licenseKey.trim() ? 'rgba(255,255,255,0.08)' : '#185FA5',
-              color: '#fff', border: 'none', borderRadius: 12,
-              fontSize: 16, fontWeight: 700,
-              cursor: verifying || !licenseKey.trim() ? 'not-allowed' : 'pointer',
-              transition: 'background 0.2s',
-            }}
-          >
-            {verifying ? '確認中...' : '認証する'}
-          </button>
-        </div>
-
-        <div style={{ marginTop: 40, fontSize: 11, color: '#333', textAlign: 'center', lineHeight: 1.8 }}>
-          ライセンスキーはBINGO LADDER PRO購入時の<br />メールに記載されています
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a0f', color: '#e8e8e8', paddingBottom: 60 }}>
@@ -215,9 +121,6 @@ export default function Page() {
           <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', letterSpacing: '0.05em' }}>ANALYZER PRO</div>
           <div style={{ fontSize: 10, color: '#f39c12', marginTop: 1 }}>XAUUSD · Smart Money Fusion</div>
         </div>
-        <button onClick={logout} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#666', fontSize: 11, padding: '6px 10px', cursor: 'pointer' }}>
-          ログアウト
-        </button>
       </div>
 
       <div style={{ padding: '20px 16px', maxWidth: 480, margin: '0 auto' }}>
