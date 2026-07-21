@@ -3,6 +3,20 @@
 import { useState, useRef, useCallback } from 'react'
 
 type Signal = 'SELL' | 'BUY' | 'WAIT' | 'CAUTION'
+type Probability = '高' | '中' | '低'
+
+interface Scenario {
+  type: string
+  label: string
+  direction: Signal
+  trigger: string
+  entry: string
+  sl: string
+  tp1: string
+  tp2: string
+  description: string
+  probability: Probability
+}
 
 interface AnalysisResult {
   signal: Signal
@@ -19,6 +33,7 @@ interface AnalysisResult {
   reasons: string[]
   warning: string
   confidence: number
+  scenarios: Scenario[]
 }
 
 const SIGNAL_CONFIG = {
@@ -28,24 +43,19 @@ const SIGNAL_CONFIG = {
   CAUTION: { color: '#e67e22', bg: 'rgba(230,126,34,0.12)', border: 'rgba(230,126,34,0.3)', label: '⚠ CAUTION' },
 }
 
+const PROB_CONFIG: Record<Probability, { color: string; bg: string }> = {
+  '高': { color: '#2ecc71', bg: 'rgba(46,204,113,0.15)' },
+  '中': { color: '#f39c12', bg: 'rgba(243,156,18,0.15)' },
+  '低': { color: '#e84040', bg: 'rgba(232,64,64,0.15)' },
+}
+
 const LOADING_MSGS = [
   'チャートを読み取っています...',
   'EMA配列を解析中...',
   'BOS / CHoCH 検出中...',
   'STAGE POWER 算出中...',
-  'エントリーポイント計算中...',
+  'シナリオを構築中...',
 ]
-
-// LOT計算ユーティリティ
-function calcPnL(entryStr: string, targetStr: string, lot: number, isBuy: boolean) {
-  const entry = parseFloat(entryStr.replace(/[^0-9.]/g, ''))
-  const target = parseFloat(targetStr.replace(/[^0-9.]/g, ''))
-  if (isNaN(entry) || isNaN(target) || lot <= 0) return null
-  const diff = isBuy ? target - entry : entry - target
-  const usd = diff * lot * 100
-  const jpy = usd * 155 // 概算レート
-  return { usd: usd.toFixed(2), jpy: Math.round(jpy).toLocaleString() }
-}
 
 export default function Page() {
   const [preview, setPreview] = useState<string | null>(null)
@@ -58,9 +68,10 @@ export default function Page() {
   const [loadingMsg, setLoadingMsg] = useState('')
   const [lot, setLot] = useState('0.01')
   const [usdJpy, setUsdJpy] = useState('155')
-  const [showSimulator, setShowSimulator] = useState(false)
+  const [showSimulator, setShowSimulator] = useState(true)
   const [memo, setMemo] = useState('')
   const [showMemo, setShowMemo] = useState(false)
+  const [copied, setCopied] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
   const loadingRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -110,7 +121,6 @@ export default function Page() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || '解析失敗')
       setResult(data)
-      setShowSimulator(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : '解析エラー')
     } finally {
@@ -124,11 +134,44 @@ export default function Page() {
     setImageBase64(null)
     setResult(null)
     setError(null)
-    setShowSimulator(false)
     setMemo('')
     setShowMemo(false)
+    setCopied(false)
     if (fileRef.current) fileRef.current.value = ''
     if (cameraRef.current) cameraRef.current.value = ''
+  }
+
+  // CASAシェア用テキスト生成
+  const generateShareText = () => {
+    if (!result) return ''
+    const now = new Date()
+    const dateStr = `${now.getMonth()+1}/${now.getDate()} ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}`
+    let text = `📊 XAUUSD 本日の相場 ${dateStr}\n`
+    text += `━━━━━━━━━━━━━━\n`
+    text += `🎯 ${result.signal} | STAGE ${result.stage} | POWER ${result.stagePower}/10\n`
+    text += `📈 ${result.trend}\n\n`
+    if (result.scenarios && result.scenarios.length > 0) {
+      result.scenarios.forEach(s => {
+        const icon = s.direction === 'BUY' ? '🟢' : '🔴'
+        text += `【シナリオ${s.type}: ${s.label}】確度${s.probability}\n`
+        text += `${icon} ${s.trigger}\n`
+        text += `Entry: ${s.entry} | SL: ${s.sl}\n`
+        text += `TP1: ${s.tp1} | TP2: ${s.tp2}\n`
+        text += `${s.description}\n\n`
+      })
+    }
+    text += `⚠️ ${result.warning}\n`
+    text += `━━━━━━━━━━━━━━\n`
+    text += `#XAUUSD #GOLD #BINGO_LADDER`
+    return text
+  }
+
+  const handleCopy = () => {
+    const text = generateShareText()
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   const cfg = result ? SIGNAL_CONFIG[result.signal] : null
@@ -136,17 +179,16 @@ export default function Page() {
   const lotNum = parseFloat(lot) || 0.01
   const rate = parseFloat(usdJpy) || 155
 
-  // PnL計算
-  const calcPnLWithRate = (entryStr: string, targetStr: string) => {
+  const calcPnL = (entryStr: string, targetStr: string) => {
     const entry = parseFloat(entryStr?.replace(/[^0-9.]/g, '') || '0')
     const target = parseFloat(targetStr?.replace(/[^0-9.]/g, '') || '0')
-    if (!entry || !target || lotNum <= 0) return null
+    if (!entry || !target) return null
     const diff = isBuy ? target - entry : entry - target
     const usd = diff * lotNum * 100
     const jpy = usd * rate
     return {
-      usd: usd.toFixed(2),
-      jpy: Math.round(jpy).toLocaleString(),
+      usd: Math.abs(usd).toFixed(2),
+      jpy: Math.abs(Math.round(jpy)).toLocaleString(),
       positive: usd > 0
     }
   }
@@ -162,7 +204,7 @@ export default function Page() {
 
       <div style={{ padding: '20px 16px', maxWidth: 480, margin: '0 auto' }}>
 
-        {/* 画像アップロード */}
+        {/* アップロード */}
         {!preview && !loading && (
           <>
             <div
@@ -182,17 +224,7 @@ export default function Page() {
               <div style={{ fontSize: 15, color: '#ccc', marginBottom: 4 }}>スクショをドロップ</div>
               <div style={{ fontSize: 12, color: '#666' }}>またはタップして選択</div>
             </div>
-            <button
-              onClick={() => cameraRef.current?.click()}
-              style={{
-                width: '100%', padding: '14px',
-                background: 'rgba(255,255,255,0.04)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 12, color: '#ccc', fontSize: 15,
-                cursor: 'pointer', display: 'flex',
-                alignItems: 'center', justifyContent: 'center', gap: 8,
-              }}
-            >
+            <button onClick={() => cameraRef.current?.click()} style={{ width: '100%', padding: '14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 12, color: '#ccc', fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <span style={{ fontSize: 20 }}>📷</span> カメラでスキャン
             </button>
             <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFile} style={{ display: 'none' }} />
@@ -206,9 +238,7 @@ export default function Page() {
             <button onClick={analyze} style={{ width: '100%', marginTop: 12, padding: '14px', background: '#185FA5', color: '#fff', border: 'none', borderRadius: 12, fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>
               ⚡ BINGO LADDER 解析
             </button>
-            <button onClick={reset} style={{ width: '100%', marginTop: 8, padding: '10px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#888', fontSize: 13, cursor: 'pointer' }}>
-              キャンセル
-            </button>
+            <button onClick={reset} style={{ width: '100%', marginTop: 8, padding: '10px', background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, color: '#888', fontSize: 13, cursor: 'pointer' }}>キャンセル</button>
           </div>
         )}
 
@@ -240,6 +270,77 @@ export default function Page() {
               <div style={{ fontSize: 13, color: '#aaa', marginBottom: 4 }}>{result.trend}</div>
               {result.currentPrice && <div style={{ fontSize: 12, color: '#666' }}>現在価格: {result.currentPrice}</div>}
             </div>
+
+            {/* ═══ シナリオカード（NEW）═══ */}
+            {result.scenarios && result.scenarios.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 11, color: '#666', letterSpacing: '0.1em', marginBottom: 8 }}>🎯 本日のシナリオ</div>
+                {result.scenarios.map((s) => {
+                  const dirCfg = SIGNAL_CONFIG[s.direction]
+                  const probCfg = PROB_CONFIG[s.probability] || PROB_CONFIG['中']
+                  return (
+                    <div key={s.type} style={{
+                      background: 'rgba(255,255,255,0.03)',
+                      border: `1px solid ${dirCfg.border}`,
+                      borderLeft: `3px solid ${dirCfg.color}`,
+                      borderRadius: 14, padding: '16px', marginBottom: 10
+                    }}>
+                      {/* ヘッダー */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ background: dirCfg.color, color: '#fff', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4 }}>
+                            シナリオ{s.type}
+                          </span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>{s.label}</span>
+                        </div>
+                        <span style={{ background: probCfg.bg, color: probCfg.color, fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6 }}>
+                          確度: {s.probability}
+                        </span>
+                      </div>
+
+                      {/* トリガー */}
+                      <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: '10px 12px', marginBottom: 10 }}>
+                        <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>🔔 トリガー条件</div>
+                        <div style={{ fontSize: 14, color: dirCfg.color, fontWeight: 600 }}>{s.trigger}</div>
+                      </div>
+
+                      {/* 価格ゾーン */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
+                        {[
+                          { label: 'Entry', value: s.entry, color: dirCfg.color },
+                          { label: 'SL', value: s.sl, color: '#e84040' },
+                          { label: 'TP1', value: s.tp1, color: '#2ecc71' },
+                          { label: 'TP2', value: s.tp2, color: '#27ae60' },
+                        ].map(({ label, value, color }) => (
+                          <div key={label} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '6px 8px', textAlign: 'center' }}>
+                            <div style={{ fontSize: 9, color: '#555', marginBottom: 2 }}>{label}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color }}>{value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* 解説 */}
+                      <div style={{ fontSize: 12, color: '#aaa', lineHeight: 1.6 }}>{s.description}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* CASAシェアボタン（NEW）*/}
+            <button
+              onClick={handleCopy}
+              style={{
+                width: '100%', padding: '14px',
+                background: copied ? 'rgba(46,204,113,0.2)' : 'rgba(243,156,18,0.15)',
+                border: `1px solid ${copied ? 'rgba(46,204,113,0.4)' : 'rgba(243,156,18,0.3)'}`,
+                borderRadius: 12, color: copied ? '#2ecc71' : '#f39c12',
+                fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                marginBottom: 12, transition: 'all 0.2s'
+              }}
+            >
+              {copied ? '✅ コピーしました！' : '📋 今日の相場テキストをコピー（CASA用）'}
+            </button>
 
             {/* STAGE分析 */}
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
@@ -281,79 +382,43 @@ export default function Page() {
               </div>
             </div>
 
-            {/* ═══ LOT損益シミュレーター（NEW）═══ */}
+            {/* 損益シミュレーター */}
             <div style={{ background: 'rgba(24,95,165,0.1)', border: '1px solid rgba(24,95,165,0.3)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showSimulator ? 12 : 0 }}>
                 <div style={{ fontSize: 11, color: '#5ba3e0', letterSpacing: '0.1em' }}>💰 損益シミュレーター</div>
-                <button
-                  onClick={() => setShowSimulator(!showSimulator)}
-                  style={{ background: 'none', border: 'none', color: '#5ba3e0', fontSize: 11, cursor: 'pointer' }}
-                >
+                <button onClick={() => setShowSimulator(!showSimulator)} style={{ background: 'none', border: 'none', color: '#5ba3e0', fontSize: 11, cursor: 'pointer' }}>
                   {showSimulator ? '▲ 閉じる' : '▼ 開く'}
                 </button>
               </div>
-
               {showSimulator && (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                     <div>
                       <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>LOT数</div>
-                      <input
-                        type="number"
-                        value={lot}
-                        onChange={(e) => setLot(e.target.value)}
-                        step="0.01"
-                        min="0.01"
-                        style={{
-                          width: '100%', padding: '8px 10px',
-                          background: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(255,255,255,0.15)',
-                          borderRadius: 8, color: '#fff', fontSize: 14,
-                          boxSizing: 'border-box'
-                        }}
-                      />
+                      <input type="number" value={lot} onChange={(e) => setLot(e.target.value)} step="0.01" min="0.01" style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
                     </div>
                     <div>
-                      <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>USD/JPY レート</div>
-                      <input
-                        type="number"
-                        value={usdJpy}
-                        onChange={(e) => setUsdJpy(e.target.value)}
-                        step="0.1"
-                        style={{
-                          width: '100%', padding: '8px 10px',
-                          background: 'rgba(255,255,255,0.05)',
-                          border: '1px solid rgba(255,255,255,0.15)',
-                          borderRadius: 8, color: '#fff', fontSize: 14,
-                          boxSizing: 'border-box'
-                        }}
-                      />
+                      <div style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>USD/JPY</div>
+                      <input type="number" value={usdJpy} onChange={(e) => setUsdJpy(e.target.value)} step="0.1" style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
                     </div>
                   </div>
-
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {[
-                      { label: '🔴 SL 損失', target: result.slZone, isLoss: true },
-                      { label: '🟢 TP1 利益', target: result.tp1, isLoss: false },
-                      { label: '🟢 TP2 利益', target: result.tp2, isLoss: false },
-                      { label: '🟢 TP3 利益', target: result.tp3, isLoss: false },
-                    ].map(({ label, target, isLoss }) => {
-                      const pnl = calcPnLWithRate(result.entryZone, target)
+                      { label: '🔴 SL 損失', target: result.slZone },
+                      { label: '🟢 TP1 利益', target: result.tp1 },
+                      { label: '🟢 TP2 利益', target: result.tp2 },
+                      { label: '🟢 TP3 利益', target: result.tp3 },
+                    ].map(({ label, target }) => {
+                      const pnl = calcPnL(result.entryZone, target)
                       if (!pnl) return null
+                      const isLoss = label.includes('SL')
                       const color = isLoss ? '#e84040' : '#2ecc71'
                       return (
-                        <div key={label} style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 12px'
-                        }}>
+                        <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 12px' }}>
                           <span style={{ fontSize: 12, color: '#aaa' }}>{label}</span>
                           <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: 14, fontWeight: 700, color }}>
-                              {isLoss ? '-' : '+'}{Math.abs(parseFloat(pnl.usd)).toFixed(2)} USD
-                            </div>
-                            <div style={{ fontSize: 11, color: '#666' }}>
-                              ≈ {isLoss ? '-' : '+'}{Math.abs(parseInt(pnl.jpy.replace(/,/g, ''))).toLocaleString()} 円
-                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color }}>{isLoss ? '-' : '+'}{pnl.usd} USD</div>
+                            <div style={{ fontSize: 11, color: '#666' }}>≈ {isLoss ? '-' : '+'}{pnl.jpy} 円</div>
                           </div>
                         </div>
                       )
@@ -363,32 +428,14 @@ export default function Page() {
               )}
             </div>
 
-            {/* ═══ トレードメモ（NEW）═══ */}
+            {/* メモ */}
             <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: showMemo ? 10 : 0 }}>
                 <div style={{ fontSize: 11, color: '#666', letterSpacing: '0.1em' }}>📝 トレードメモ</div>
-                <button
-                  onClick={() => setShowMemo(!showMemo)}
-                  style={{ background: 'none', border: 'none', color: '#666', fontSize: 11, cursor: 'pointer' }}
-                >
-                  {showMemo ? '▲' : '▼ 書く'}
-                </button>
+                <button onClick={() => setShowMemo(!showMemo)} style={{ background: 'none', border: 'none', color: '#666', fontSize: 11, cursor: 'pointer' }}>{showMemo ? '▲' : '▼ 書く'}</button>
               </div>
               {showMemo && (
-                <textarea
-                  value={memo}
-                  onChange={(e) => setMemo(e.target.value)}
-                  placeholder="エントリー理由・注意点・感想など..."
-                  rows={3}
-                  style={{
-                    width: '100%', padding: '10px',
-                    background: 'rgba(255,255,255,0.04)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: 8, color: '#ccc', fontSize: 13,
-                    resize: 'vertical', boxSizing: 'border-box',
-                    fontFamily: 'inherit'
-                  }}
-                />
+                <textarea value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="エントリー理由・注意点・感想など..." rows={3} style={{ width: '100%', padding: '10px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#ccc', fontSize: 13, resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }} />
               )}
             </div>
 
@@ -402,7 +449,6 @@ export default function Page() {
               ))}
             </div>
 
-            {/* 警告 */}
             {result.warning && (
               <div style={{ background: 'rgba(243,156,18,0.08)', border: '1px solid rgba(243,156,18,0.2)', borderRadius: 12, padding: '12px 14px', marginBottom: 12, fontSize: 13, color: '#f39c12' }}>
                 ⚠ {result.warning}

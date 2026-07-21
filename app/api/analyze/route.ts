@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const SYSTEM_PROMPT = `あなたはBINGO LADDER PRO v2.0のトレード解析AIです。XAUUSDのTradingViewチャートスクリーンショットを見て、以下のBINGO LADDERロジックに従い分析します。
+const SYSTEM_PROMPT = `あなたはBINGO LADDER PRO v2.0のトレード解析AIです。XAUUSDのTradingViewチャートスクリーンショットを見て、BINGO LADDERロジックに従い分析します。
 
 【BINGO LADDERロジック】
 STAGE判定:
@@ -19,18 +19,13 @@ STAGE判定:
 5. BUY/SELLラベルの密度と直近シグナル方向
 6. 右側パネルのSTAGE POWER数値・MTFトレンド方向
 
-エントリーポイント判定:
-- 押し目・戻り目の価格帯を特定
-- リスクリワード最低1:2以上のSL/TP設定
-- 現在価格から最も近い有効なエントリーゾーンを提示
-
 必ず以下のJSON形式のみで返答（コードブロックなし）:
 {
   "signal": "SELL" | "BUY" | "WAIT" | "CAUTION",
   "stage": 0から5の整数,
   "stagePower": 0から10の整数,
   "trend": "下降トレンド" | "上昇トレンド" | "レンジ" | "転換示唆" | "過熱圏",
-  "currentPrice": "現在価格",
+  "currentPrice": "現在価格（例: 4185.50）",
   "entryZone": "エントリー推奨価格帯",
   "slZone": "SL推奨価格帯",
   "tp1": "TP1価格",
@@ -39,7 +34,33 @@ STAGE判定:
   "riskReward": "リスクリワード比（例: 1:2.5）",
   "reasons": ["根拠1", "根拠2", "根拠3"],
   "warning": "注意点",
-  "confidence": 1から10の整数
+  "confidence": 1から10の整数,
+  "scenarios": [
+    {
+      "type": "A",
+      "label": "メインシナリオ",
+      "direction": "SELL" | "BUY",
+      "trigger": "〇〇を下抜けたら" | "〇〇まで戻りを待って" | "〇〇を上抜けたら" など具体的なトリガー条件,
+      "entry": "エントリー価格（例: 4200.00）",
+      "sl": "SL価格",
+      "tp1": "TP1価格",
+      "tp2": "TP2価格",
+      "description": "このシナリオの解説（1〜2文で簡潔に）",
+      "probability": "高" | "中" | "低"
+    },
+    {
+      "type": "B",
+      "label": "サブシナリオ",
+      "direction": "SELL" | "BUY",
+      "trigger": "具体的なトリガー条件",
+      "entry": "エントリー価格",
+      "sl": "SL価格",
+      "tp1": "TP1価格",
+      "tp2": "TP2価格",
+      "description": "このシナリオの解説",
+      "probability": "高" | "中" | "低"
+    }
+  ]
 }`
 
 export async function POST(req: NextRequest) {
@@ -58,13 +79,13 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1500,
+        max_tokens: 2000,
         system: SYSTEM_PROMPT,
         messages: [{
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/png', data: imageBase64 } },
-            { type: 'text', text: 'このXAUUSDチャートをBINGO LADDER PROロジックで解析し、具体的なエントリーポイントを教えてください。' }
+            { type: 'text', text: 'このXAUUSDチャートをBINGO LADDER PROロジックで解析し、具体的なシナリオA・Bを含めて出力してください。' }
           ]
         }]
       }),
